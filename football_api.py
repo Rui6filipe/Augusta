@@ -30,6 +30,26 @@ def get_team_standings(league_id: int, season: int):
     r = requests.get(url, headers=HEADERS, params=params)
     return r.json()
 
+def get_match_result(team1: str, team2: str, season: int, league_id: int):
+    """Search for a specific match result"""
+    url = f"{FOOTBALL_API_URL}/fixtures/headtohead"
+    params = {"h2h": f"{team1}-{team2}", "season": season}
+    if league_id is not None:
+        params["league"] = league_id
+    r = requests.get(url, headers=HEADERS, params=params)
+    return r.json()
+
+def get_team_fixtures(team_id: int, season: int, next_matches: bool = True, last_matches: bool = False):
+    """Get fixtures for a team (next or last)"""
+    url = f"{FOOTBALL_API_URL}/fixtures"
+    params = {"team": team_id, "season": season}
+    if next_matches:
+        params["next"] = 5  # get next 5 matches
+    if last_matches:
+        params["last"] = 5  # get last 5 matches
+    r = requests.get(url, headers=HEADERS, params=params)
+    return r.json()
+
 def search_player(name: str, team: str = None):
     """Search for a player by name (and optionally team)"""
     url = f"{FOOTBALL_API_URL}/players"
@@ -43,23 +63,5 @@ def get_player_stats(player_id: int, season: int):
     """Fetch player statistics for given season"""
     url = f"{FOOTBALL_API_URL}/players"
     params = {"id": player_id, "season": season}
-    r = requests.get(url, headers=HEADERS, params=params)
-    return r.json()
-
-def get_match_result(team1: str, team2: str, season: int, league_id: int):
-    """Search for a specific match result"""
-    url = f"{FOOTBALL_API_URL}/fixtures/headtohead"
-    params = {"h2h": f"{team1}-{team2}", "season": season, "league": league_id}
-    r = requests.get(url, headers=HEADERS, params=params)
-    return r.json()
-
-def get_team_fixtures(team_id: int, season: int, next_matches: bool = True, last_matches: bool = False):
-    """Get fixtures for a team (next or last)"""
-    url = f"{FOOTBALL_API_URL}/fixtures"
-    params = {"team": team_id, "season": season}
-    if next_matches:
-        params["next"] = 5  # get next 5 matches
-    if last_matches:
-        params["last"] = 5  # get last 5 matches
     r = requests.get(url, headers=HEADERS, params=params)
     return r.json()

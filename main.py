@@ -11,7 +11,8 @@ def extract_intent(user_input: str) -> dict:
     You must return a JSON object with these fields:
     - intent: one of ["get_player_stats", "get_team_standing", "get_match_result", "get_match_events"]
     - player: string (official name of player as listed in major football databases, or null if not relevant)
-    - team: string (official name of team as listed in major football databases, or null if not relevant)
+    - team1: string (official name of first team mentioned as listed in major football databases, or null if not relevant)
+    - team2: string (official name of a possible second team mentioned as listed in major football databases, or null if not relevant)
     - season: string (e.g. "2022/2023", "2024"), or null if not given
     - stat: string (e.g. "golos", "assistências", "cartões"), or null if not relevant
     - match_date: string (YYYY-MM-DD) or null
@@ -40,7 +41,8 @@ def extract_intent(user_input: str) -> dict:
     defaults = {
         "intent": "unknown",
         "player": None,
-        "team": None,
+        "team1": None,
+        "team2": None,
         "season": None,
         "stat": None,
         "match_date": None,
@@ -101,6 +103,55 @@ def handle_intent(intent: dict):
             return f"Não encontrei a posição do {team_name} em {season} na {league_name or 'liga'}."
         
         return f"O {team_name} terminou em {position}º lugar na {league_name or 'liga'} na época {season}."
+
+
+    elif intent.get("intent") == "get_match_result":
+        team1 = intent.get("team1")
+        team2 = intent.get("team2")
+        season = intent.get("season")
+        competition = intent.get("competition")
+
+        if not team1 or not team2 or not season:
+            return "Não consegui identificar as equipas ou a época."
+
+        # Search teams to get IDs
+        t1 = football_api.search_team(team1)
+        t2 = football_api.search_team(team2)
+        if not t1.get("response") or not t2.get("response"):
+            return "Não encontrei uma das equipas."
+
+        id1 = t1["response"][0]["team"]["id"]
+        id2 = t2["response"][0]["team"]["id"]
+
+        # Map competition name to league id if specified
+        league_id = None
+        comp_label = ""
+        if competition:
+            for key, league in football_api.LEAGUES.items():
+                if competition.lower() == league["name"].lower():
+                    league_id = league["id"]
+                    comp_label = league["name"]
+                    break
+
+        # If no competition specified or not found, league_id remains None and will be omitted from API call
+        match_res = football_api.get_match_result(id1, id2, season.split("/")[0], league_id)
+        if not match_res.get("response"):
+            if competition:
+                return f"Não encontrei resultados entre {team1} e {team2} em {season} para {competition}."
+            else:
+                return f"Não encontrei resultados entre {team1} e {team2} em {season}."
+
+        match = match_res["response"][0]
+        home = match["teams"]["home"]["name"]
+        away = match["teams"]["away"]["name"]
+        g1, g2 = match["goals"]["home"], match["goals"]["away"]
+        date = match["fixture"]["date"][:10]
+
+        if comp_label:
+            return f"{date}: {home} {g1} - {g2} {away} ({comp_label})"
+        else:
+            return f"{date}: {home} {g1} - {g2} {away}"
+
 
     return "Ainda não sei responder a esse tipo de pergunta."
 
