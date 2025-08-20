@@ -15,6 +15,7 @@ def extract_intent(user_input: str) -> dict:
     - season: string (e.g. "2022/2023", "2024"), or null if not given
     - stat: string (e.g. "golos", "assistências", "cartões"), or null if not relevant
     - match_date: string (YYYY-MM-DD) or null
+    - competition: string (e.g. "Primeira Liga", "Premier League", "La Liga", "Bundesliga", "Serie A", "Ligue 1", "Eredivisie", "UEFA Champions League", "UEFA Europa League", "UEFA Europa Conference League"), or null if not specified by the user
 
     Note: The current football season is 2025/2026. If the user refers to relative seasons (e.g., "época passada", "last season", "época atual", "this season"), resolve them to the correct season string (e.g., "época passada" = "2024/2025", "época atual" = "2025/2026").
     """
@@ -43,6 +44,7 @@ def extract_intent(user_input: str) -> dict:
         "season": None,
         "stat": None,
         "match_date": None,
+        "competition": None,
     }
     return {**defaults, **intent}
 
@@ -53,6 +55,7 @@ def handle_intent(intent: dict):
     if intent.get("intent") == "get_team_standing":
         team_name = intent.get("team")
         season = intent.get("season")
+        competition = intent.get("competition")
 
         if not team_name or not season:
             return "Não consegui identificar a equipa ou a época."
@@ -66,10 +69,20 @@ def handle_intent(intent: dict):
         team_id = team["id"]
         country = team.get("country", "").lower()
 
-        # Pick league
-        league_id = football_api.LEAGUES.get(country, {}).get("id")
+        # Determine if user wants a European competition
+        league_id = None
+        league_name = None
+        if competition:
+            for key, league in football_api.LEAGUES.items():
+                if competition.lower() == league["name"].lower():
+                    league_id = league["id"]
+                    league_name = league["name"]
+                    break
+
+        # If no league found from competition, default to national league
         if not league_id:
-            return f"Ainda não tenho mapeamento de ligas para {country}."
+            league_id = football_api.LEAGUES.get(country, {}).get("id")
+            league_name = football_api.LEAGUES.get(country, {}).get("name")
 
         # Get standings
         standings_res = football_api.get_team_standings(league_id, season.split("/")[0])
@@ -85,9 +98,9 @@ def handle_intent(intent: dict):
                 break
 
         if position is None:
-            return f"Não encontrei a posição do {team_name} em {season}."
+            return f"Não encontrei a posição do {team_name} em {season} na {league_name or 'liga'}."
         
-        return f"O {team_name} terminou em {position}º lugar na época {season}."
+        return f"O {team_name} terminou em {position}º lugar na {league_name or 'liga'} na época {season}."
 
     return "Ainda não sei responder a esse tipo de pergunta."
 
