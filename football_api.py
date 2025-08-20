@@ -61,6 +61,18 @@ def get_fixture_predictions(fixture_id: int):
     except Exception:
         return {"response": []}
     
+def get_fixture_events(fixture_id: int, team_id: int = None, player_id: int = None):
+    """Fetch events for a specific fixture."""
+    url = f"{FOOTBALL_API_URL}/fixtures/events"
+    params = {"fixture": fixture_id}
+    if team_id:
+        params["team"] = team_id
+    if player_id:
+        params["player"] = player_id
+
+    r = requests.get(url, headers=HEADERS, params=params)
+    return r.json()
+
 
 def search_player(name: str, team: str = None):
     """Search for a player by name (and optionally team)"""
