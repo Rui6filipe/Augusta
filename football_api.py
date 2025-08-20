@@ -73,19 +73,15 @@ def get_fixture_events(fixture_id: int, team_id: int = None, player_id: int = No
     r = requests.get(url, headers=HEADERS, params=params)
     return r.json()
 
-
-def search_player(name: str, team: str = None):
-    """Search for a player by name (and optionally team)"""
+def get_players(player_name: str = None, player_id: int = None, season: int = None):
+    """Fetch players by name, ID, or season."""
     url = f"{FOOTBALL_API_URL}/players"
-    params = {"search": name}
-    if team:
-        params["team"] = team
-    r = requests.get(url, headers=HEADERS, params=params)
-    return r.json()
-
-def get_player_stats(player_id: int, season: int):
-    """Fetch player statistics for given season"""
-    url = f"{FOOTBALL_API_URL}/players"
-    params = {"id": player_id, "season": season}
+    params = {}
+    if player_name:
+        params["search"] = player_name
+    if player_id:
+        params["id"] = player_id
+    if season:
+        params["season"] = season
     r = requests.get(url, headers=HEADERS, params=params)
     return r.json()

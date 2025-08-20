@@ -14,8 +14,11 @@ def handle_team_standing_intent(intent: dict):
     season = intent.get("season")
     competition = intent.get("competition")
 
-    if not team_name or not season:
-        return "Não consegui identificar a equipa ou a época."
+    if not team_name:
+        return "Não consegui identificar a equipa."
+
+    if not season:
+        season = "2025/2026"
 
     # Search team
     team_res = football_api.search_team(team_name)
@@ -53,14 +56,19 @@ def handle_team_standing_intent(intent: dict):
     
     return f"O {team_name} terminou em {position}º lugar na {league_name or 'liga'} na época {season}."
 
+
+
 def handle_match_result_intent(intent: dict):
     team1 = intent.get("team1")
     team2 = intent.get("team2")
     season = intent.get("season")
     competition = intent.get("competition")
 
-    if not team1 or not team2 or not season:
-        return "Não consegui identificar as equipas ou a época."
+    if not team1 or not team2:
+        return "Não consegui identificar as equipas."
+
+    if not season:
+        season = "2025/2026"
 
     # Search teams to get IDs
     t1 = football_api.search_team(team1)
@@ -93,6 +101,8 @@ def handle_match_result_intent(intent: dict):
         return f"{date}: {home} {g1} - {g2} {away} ({comp_label})"
     else:
         return f"{date}: {home} {g1} - {g2} {away}"
+
+
 
 def handle_team_fixtures_intent(intent: dict):
     team_name = intent.get("team1")
@@ -148,71 +158,6 @@ def handle_team_fixtures_intent(intent: dict):
 
     return f"{'Jogo mais difícil' if fixture_type=='hardest' else 'Jogo mais fácil'}: {date}: {home} vs {away} (probabilidade de vitória: {win_prob_pct})"
 
-def handle_match_events_intent(intent: dict):
-    stat_labels = {
-        "goal": "Golos",
-        "card": "Cartões",
-        "subst": "Substituições",
-        "var": "VAR",
-        "incident": "Incidentes"
-    }
-    team1 = intent.get("team1")
-    team2 = intent.get("team2")
-    season = intent.get("season")
-    competition = intent.get("competition")
-    stat = intent.get("stat")
-
-    if not team1 or not team2:
-        return "Não consegui identificar as equipas do jogo."
-
-    # Search teams to get IDs
-    t1_res = football_api.search_team(team1)
-    t2_res = football_api.search_team(team2)
-    if not t1_res.get("response") or not t2_res.get("response"):
-        return "Não encontrei uma das equipas."
-
-    id1 = t1_res["response"][0]["team"]["id"]
-    id2 = t2_res["response"][0]["team"]["id"]
-
-    # Map competition name to league id if specified
-    league_id, _ = get_league_info_from_competition(competition)
-
-    # Get fixture id for the match
-    fixtures_res = football_api.get_match_result(id1, id2, season.split("/")[0], league_id)
-    if not fixtures_res.get("response"):
-        return f"Não encontrei o jogo entre {team1} e {team2} em {season}."
-    
-    fixture_id = fixtures_res["response"][0]["fixture"]["id"]
-
-    # Get events for that fixture
-    events_res = football_api.get_fixture_events(fixture_id)
-    events = events_res.get("response", [])
-
-    # Filter by what user asked
-    filtered = []
-    stat_lower = stat.lower()
-    for e in events:
-        t = e.get("type", "").lower()
-        if stat_lower == t:
-            filtered.append(e)
-
-    if not filtered:
-        stat_pt = stat_labels.get(stat_lower, stat.capitalize())
-        return f"Não encontrei {stat_pt} no jogo {team1} vs {team2}."
-
-    # Format result
-    out = []
-    for e in filtered:
-        minute = e.get("time", {}).get("elapsed")
-        player = e.get("player", {}).get("name")
-        team_name = e.get("team", {}).get("name")
-        detail = e.get("detail")
-        out.append(f"- {minute}': {player} ({team_name}) - {detail}")
-
-    stat_pt = stat_labels.get(stat_lower, stat.capitalize())
-    
-    return f"{stat_pt} no jogo {team1} vs {team2}:\n"
-
 
 def compute_difficulty(fixture, team_name):
     fixture_id = fixture["fixture"]["id"]
@@ -241,3 +186,134 @@ def compute_difficulty(fixture, team_name):
         return None
 
     return team_prob
+
+
+
+def handle_match_events_intent(intent: dict):
+    team1 = intent.get("team1")
+    team2 = intent.get("team2")
+    season = intent.get("season")
+    competition = intent.get("competition")
+    event = intent.get("event")
+
+    event_labels = {
+        "goal": "Golos",
+        "card": "Cartões",
+        "subst": "Substituições",
+        "var": "VAR",
+        "incident": "Incidentes"
+    }
+
+    if not team1 or not team2:
+        return "Não consegui identificar as equipas do jogo."
+
+    if not season:
+        season = "2025/2026"
+
+    # Search teams to get IDs
+    t1_res = football_api.search_team(team1)
+    t2_res = football_api.search_team(team2)
+    if not t1_res.get("response") or not t2_res.get("response"):
+        return "Não encontrei uma das equipas."
+
+    id1 = t1_res["response"][0]["team"]["id"]
+    id2 = t2_res["response"][0]["team"]["id"]
+
+    # Map competition name to league id if specified
+    league_id, _ = get_league_info_from_competition(competition)
+
+    # Get fixture id for the match
+    fixtures_res = football_api.get_match_result(id1, id2, season.split("/")[0], league_id)
+    if not fixtures_res.get("response"):
+        return f"Não encontrei o jogo entre {team1} e {team2} em {season}."
+    
+    fixture_id = fixtures_res["response"][0]["fixture"]["id"]
+
+    # Get events for that fixture
+    events_res = football_api.get_fixture_events(fixture_id)
+    events = events_res.get("response", [])
+
+    # Filter by what user asked (compact)
+    event_lower = event.lower()
+    filtered = [e for e in events if e.get("type", "").lower() == event_lower]
+
+    if not filtered:
+        event_pt = event_labels.get(event_lower, event.capitalize())
+        return f"Não encontrei {event_pt} no jogo {team1} vs {team2}."
+
+    # Format result
+    out = []
+    for e in filtered:
+        minute = e.get("time", {}).get("elapsed")
+        player = e.get("player", {}).get("name")
+        team_name = e.get("team", {}).get("name")
+        detail = e.get("detail")
+        out.append(f"- {minute}': {player} ({team_name}) - {detail}")
+
+    event_pt = event_labels.get(event_lower, event.capitalize())
+    
+    return f"{event_pt} no jogo {team1} vs {team2}:\n"
+
+
+def handle_player_stats_intent(intent: dict):
+    player_name = intent.get("player")
+    season = intent.get("season")
+    stats_requested = intent.get("stat")
+
+    stat_labels = {
+        "goals.total": "Golos",
+        "goals.assists": "Assistências",
+        "games.appearences": "Jogos",
+        "games.minutes": "Minutos jogados",
+        "shots.on": "Remates à baliza",
+        "passes.key": "Passes-chave",
+        "passes.accuracy": "Precisão de passe",
+        "dribbles.success": "Dribles com sucesso",
+        "cards.yellow": "Cartões amarelos",
+        "cards.red": "Cartões vermelhos"
+    }
+
+    if not player_name:
+        return "Não consegui identificar o jogador."
+
+    # Default to current season if none given
+    if not season:
+        season = "2025/2026"
+    season_start = int(season.split("/")[0])
+
+    # Search player
+    search_res = football_api.get_players(player_name=player_name)
+    if not search_res.get("response"):
+        return f"Não encontrei o jogador {player_name}."
+
+    player = search_res["response"][0]["player"]
+    player_id = player["id"]
+
+    # Get stats for player and season
+    stats_res = football_api.get_players(player_id=player_id, season=season_start)
+    if not stats_res.get("response"):
+        return f"Não encontrei estatísticas para {player_name} na época {season}."
+
+    stats = stats_res["response"][0]["statistics"][0]  # usually one main entry
+
+    # Flatten first league/team stats (API gives a list)
+    statistics = stats[0].get("statistics", [])[0] if stats[0].get("statistics") else {}
+
+    # Filter only requested stats
+    out = []
+    for stat in stats_requested:
+        # assume stat is normalized by LLM (like "goals.total", "passes.key", "shots.on")
+        keys = stat.split(".")
+        value = statistics
+        for k in keys:
+            if isinstance(value, dict):
+                value = value.get(k, None)
+            else:
+                value = None
+        label = stat_labels.get(stat, stat)
+        if value is not None:
+            out.append(f"- {label}: {value}")
+        else:
+            out.append(f"- {label}: não disponível")
+
+    return f"Estatísticas de {player_name} em {season}:\n" + "\n".join(out)
