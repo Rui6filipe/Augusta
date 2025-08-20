@@ -39,16 +39,28 @@ def get_match_result(team1: str, team2: str, season: int, league_id: int):
     r = requests.get(url, headers=HEADERS, params=params)
     return r.json()
 
-def get_team_fixtures(team_id: int, season: int, next_matches: bool = True, last_matches: bool = False):
-    """Get fixtures for a team (next or last)"""
+def get_team_fixtures(team_id: int, season: int, from_date: str = None, to_date: str = None):
+    """Get fixtures for a team (next or last, or by date range)"""
     url = f"{FOOTBALL_API_URL}/fixtures"
     params = {"team": team_id, "season": season}
-    if next_matches:
-        params["next"] = 5  # get next 5 matches
-    if last_matches:
-        params["last"] = 5  # get last 5 matches
+    if from_date:
+        params["from"] = from_date
+    if to_date:
+        params["to"] = to_date
     r = requests.get(url, headers=HEADERS, params=params)
     return r.json()
+
+def get_fixture_predictions(fixture_id: int):
+    """Get pre-match predictions for a given fixture."""
+    url = f"{FOOTBALL_API_URL}/predictions"
+    params = {"fixture": fixture_id}
+    r = requests.get(url, headers=HEADERS, params=params)
+    
+    try:
+        return r.json()
+    except Exception:
+        return {"response": []}
+    
 
 def search_player(name: str, team: str = None):
     """Search for a player by name (and optionally team)"""
