@@ -69,12 +69,18 @@ def get_fixture_events(fixture_id: int, team_id: int = None, player_id: int = No
         params["team"] = team_id
     if player_id:
         params["player"] = player_id
-
     r = requests.get(url, headers=HEADERS, params=params)
     return r.json()
 
-def get_players(player_name: str = None, player_id: int = None, season: int = None):
-    """Fetch players by name, ID, or season."""
+
+def get_player_profiles(lastname: str, page: int = 1):
+    """Fetch players by last name using the /players/profiles endpoint."""
+    url = f"{FOOTBALL_API_URL}/players/profiles"
+    params = {"search": lastname, "page": page}
+    r = requests.get(url, headers=HEADERS, params=params)
+    return r.json()
+
+def get_player_stats(player_name: str = None, player_id: int = None, season: int = None, league: int = None, team: int = None):
     url = f"{FOOTBALL_API_URL}/players"
     params = {}
     if player_name:
@@ -82,6 +88,10 @@ def get_players(player_name: str = None, player_id: int = None, season: int = No
     if player_id:
         params["id"] = player_id
     if season:
-        params["season"] = season
-    r = requests.get(url, headers=HEADERS, params=params)
+        params["season"] = int(season)
+    if league:
+        params["league"] = int(league)
+    if team:
+        params["team"] = int(team)
+    r = requests.get(url, headers=HEADERS, params=params, timeout=15)
     return r.json()

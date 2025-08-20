@@ -18,7 +18,7 @@ def extract_intent(user_input: str) -> dict:
     schema_description = f"""
     You must return a JSON object with these fields:
     - intent: one of [\"get_team_standing\", \"get_match_result\", \"get_match_events\", \"get_team_fixtures\", \"get_player_stats\"]
-    - player: string (official name of player as listed in major football databases, or null if not relevant)
+    - player: string (official name of player as listed in major football databases, normalized to contain only ASCII alphanumeric characters and spaces, no accents or special characters; or null if not relevant)
     - team1: string (official name of first team mentioned as listed in major football databases, or null if not relevant)
     - team2: string (official name of a possible second team mentioned as listed in major football databases, or null if not relevant)
     - season: string (e.g. \"2022/2023\", \"2024\"), or null if not given
@@ -79,6 +79,21 @@ def handle_intent(intent: dict):
         return "Ainda não sei responder a esse tipo de pergunta."
     
 
+def generate_response(user_input, data):
+    import json
+    prompt = f"Pergunta do utilizador: {user_input}\nAqui estão todos os dados necessários para a resposta (em JSON): {json.dumps(data, ensure_ascii=False)}\nResponde de forma clara e natural em português, somando e agrupando os dados se fizer sentido, e respondendo à pergunta do utilizador."
+    # Call LLM to generate the final answer
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "Responde sempre em português, de forma clara e natural."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0
+    )
+    return response.choices[0].message.content.strip()
+
+
 def main():
     print("🤖 Chatbot de Futebol iniciado! (escreva 'sair' para terminar)")
 
@@ -98,8 +113,10 @@ def main():
         intent = extract_intent(user_input)
         print("DEBUG INTENT:", intent)
 
-        # Handle intent
-        answer = handle_intent(intent)
+        # Handle intent and generate LLM response
+        data = handle_intent(intent)
+        print("DEBUG DATA:", data)
+        answer = generate_response(user_input, data)
         print("Chatbot:", answer)
 
 if __name__ == "__main__":

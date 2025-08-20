@@ -1,4 +1,6 @@
 import football_api
+import unicodedata
+
 
 def get_league_info_from_competition(competition):
     """Given a competition name, returns (league_id, league_name) if found, else (None, None)."""
@@ -51,11 +53,14 @@ def handle_team_standing_intent(intent: dict):
             position = row["rank"]
             break
 
-    if position is None:
-        return f"Não encontrei a posição do {team_name} em {season} na {league_name or 'liga'}."
-    
-    return f"O {team_name} terminou em {position}º lugar na {league_name or 'liga'} na época {season}."
-
+    return {
+        "team": team_name,
+        "season": season,
+        "competition": competition,
+        "league": league_name,
+        "position": position,
+        "country": country
+    }
 
 
 def handle_match_result_intent(intent: dict):
@@ -97,11 +102,18 @@ def handle_match_result_intent(intent: dict):
     g1, g2 = match["goals"]["home"], match["goals"]["away"]
     date = match["fixture"]["date"][:10]
 
-    if comp_label:
-        return f"{date}: {home} {g1} - {g2} {away} ({comp_label})"
-    else:
-        return f"{date}: {home} {g1} - {g2} {away}"
-
+    return {
+        "team1": team1,
+        "team2": team2,
+        "season": season,
+        "competition": competition,
+        "date": date,
+        "home": home,
+        "away": away,
+        "goals_home": g1,
+        "goals_away": g2,
+        "competition_label": comp_label
+    }
 
 
 def handle_team_fixtures_intent(intent: dict):
@@ -136,7 +148,6 @@ def handle_team_fixtures_intent(intent: dict):
     fixtures_with_prob = []
     for f in fixtures:
         prob = compute_difficulty(f, team_name)
-        print(f"DEBUG WIN PROBABILITY for fixture {f['fixture']['id']} ({f['teams']['home']['name']} vs {f['teams']['away']['name']}): {prob}")
         if prob is not None:
             f["win_probability"] = prob
             fixtures_with_prob.append(f)
@@ -148,15 +159,22 @@ def handle_team_fixtures_intent(intent: dict):
     reverse_sort = fixture_type == "easiest"
     fixtures_with_prob.sort(key=lambda x: x["win_probability"], reverse=reverse_sort)
 
-    # Return the top fixture
-    match = fixtures_with_prob[0]
-    home = match["teams"]["home"]["name"]
-    away = match["teams"]["away"]["name"]
-    date = match["fixture"]["date"][:10]
-    win_prob = match.get("win_probability", None)
-    win_prob_pct = f"{win_prob*100:.0f}%" if win_prob is not None else "N/A"
-
-    return f"{'Jogo mais difícil' if fixture_type=='hardest' else 'Jogo mais fácil'}: {date}: {home} vs {away} (probabilidade de vitória: {win_prob_pct})"
+    return {
+        "team": team_name,
+        "season": season,
+        "fixture_type": fixture_type,
+        "fixture_period": fixture_period,
+        "fixtures": [
+            {
+                "date": f["fixture"]["date"],
+                "home": f["teams"]["home"]["name"],
+                "away": f["teams"]["away"]["name"],
+                "league": f["league"]["name"],
+                "win_probability": f.get("win_probability")
+            }
+            for f in fixtures_with_prob
+        ]
+    }
 
 
 def compute_difficulty(fixture, team_name):
@@ -233,45 +251,39 @@ def handle_match_events_intent(intent: dict):
     events_res = football_api.get_fixture_events(fixture_id)
     events = events_res.get("response", [])
 
-    # Filter by what user asked (compact)
-    event_lower = event.lower()
-    filtered = [e for e in events if e.get("type", "").lower() == event_lower]
+    # Support event as list or string (compact)
+    event_types = event if isinstance(event, list) else [event] if isinstance(event, str) else []
 
-    if not filtered:
-        event_pt = event_labels.get(event_lower, event.capitalize())
-        return f"Não encontrei {event_pt} no jogo {team1} vs {team2}."
 
-    # Format result
-    out = []
-    for e in filtered:
-        minute = e.get("time", {}).get("elapsed")
-        player = e.get("player", {}).get("name")
-        team_name = e.get("team", {}).get("name")
-        detail = e.get("detail")
-        out.append(f"- {minute}': {player} ({team_name}) - {detail}")
-
-    event_pt = event_labels.get(event_lower, event.capitalize())
-    
-    return f"{event_pt} no jogo {team1} vs {team2}:\n"
-
+    filtered_events = {}
+    for ev in event_types:
+        event_lower = ev.lower()
+        filtered = [
+            {
+                "minute": e.get("time", {}).get("elapsed"),
+                "team": e.get("team", {}).get("name"),
+                "player": e.get("player", {}).get("name"),
+                "detail": e.get("detail")
+            }
+            for e in events if e.get("type", "").lower() == event_lower
+        ]
+        filtered_events[ev] = filtered
+    return {
+        "team1": team1,
+        "team2": team2,
+        "season": season,
+        "competition": competition,
+        "event_types": event_types,
+        "events": filtered_events
+    }
 
 def handle_player_stats_intent(intent: dict):
+
     player_name = intent.get("player")
     season = intent.get("season")
     stats_requested = intent.get("stat")
-
-    stat_labels = {
-        "goals.total": "Golos",
-        "goals.assists": "Assistências",
-        "games.appearences": "Jogos",
-        "games.minutes": "Minutos jogados",
-        "shots.on": "Remates à baliza",
-        "passes.key": "Passes-chave",
-        "passes.accuracy": "Precisão de passe",
-        "dribbles.success": "Dribles com sucesso",
-        "cards.yellow": "Cartões amarelos",
-        "cards.red": "Cartões vermelhos"
-    }
+    competition = intent.get("competition")
+    team_name = intent.get("team1")
 
     if not player_name:
         return "Não consegui identificar o jogador."
@@ -281,39 +293,77 @@ def handle_player_stats_intent(intent: dict):
         season = "2025/2026"
     season_start = int(season.split("/")[0])
 
-    # Search player
-    search_res = football_api.get_players(player_name=player_name)
-    if not search_res.get("response"):
-        return f"Não encontrei o jogador {player_name}."
+    search_res = None
+    player_id = None
 
-    player = search_res["response"][0]["player"]
-    player_id = player["id"]
+    if competition:
+        # Use league/competition
+        league_id, _ = get_league_info_from_competition(competition)
+        if not league_id:
+            return f"Não reconheço a competição {competition}."
+        search_res = football_api.get_player_stats(player_name=player_name, season=season_start, league=league_id)
 
-    # Get stats for player and season
-    stats_res = football_api.get_players(player_id=player_id, season=season_start)
-    if not stats_res.get("response"):
+    elif team_name:
+        # Use team if no competition
+        team_info = football_api.search_team(team_name)
+        if not team_info.get("response"):
+            return f"Não encontrei a equipa {team_name}."
+        team_id = team_info["response"][0]["team"]["id"]
+        search_res = football_api.get_player_stats(player_name=player_name, season=season_start, team=team_id)
+
+    else:
+        # Fallback → search by profiles using last name
+        lastname = player_name.split()[-1]
+        profiles_res = football_api.get_player_profiles(lastname)
+        candidates = profiles_res.get("response", [])
+
+        if not candidates:
+            return f"Não encontrei o jogador {player_name}."
+
+        # Try exact full-name match
+        for c in candidates:
+            if c["player"]["name"].lower() == player_name.lower():
+                player_id = c["player"]["id"]
+                break
+
+        # If no exact match, pick the first candidate
+        if not player_id and len(candidates) == 1:
+            player_id = candidates[0]["player"]["id"]
+
+        # If multiple candidates, ask for clarification (normalize accents, compare first/last names)
+        if not player_id:
+            # Compact normalization and first/last extraction
+            norm = lambda s: ''.join(c for c in unicodedata.normalize('NFD', s.lower()) if c.isalnum() or c.isspace())
+            get_first_last = lambda name: (name.strip().split()[0], name.strip().split()[-1]) if name.strip() else ('','')
+            query_first, query_last = get_first_last(norm(player_name))
+            filtered = [c for c in candidates if get_first_last(norm(c["player"]["name"])) == (query_first, query_last)]
+            if len(filtered) == 1:
+                player_id = filtered[0]["player"]["id"]
+            else:
+                if filtered:
+                    names = [c["player"]["name"] for c in filtered[:5]]
+                else:
+                    names = [c["player"]["name"] for c in candidates[:5]]
+                return f"Encontrei vários jogadores chamados {lastname}: {', '.join(names)}. Qual deles pretende?"
+
+        # Now get stats by player_id
+        search_res = football_api.get_player_stats(player_id=player_id, season=season_start)
+
+    player_stats = search_res.get("response", []) if search_res else []
+    if not player_stats:
         return f"Não encontrei estatísticas para {player_name} na época {season}."
 
-    stats = stats_res["response"][0]["statistics"][0]  # usually one main entry
+    # Take first player
+    player_data = player_stats[0]
+    statistics = player_data.get("statistics", [])
+    if not statistics:
+        return f"Não encontrei estatísticas para {player_name} na época {season}."
 
-    # Flatten first league/team stats (API gives a list)
-    statistics = stats[0].get("statistics", [])[0] if stats[0].get("statistics") else {}
-
-    # Filter only requested stats
-    out = []
-    for stat in stats_requested:
-        # assume stat is normalized by LLM (like "goals.total", "passes.key", "shots.on")
-        keys = stat.split(".")
-        value = statistics
-        for k in keys:
-            if isinstance(value, dict):
-                value = value.get(k, None)
-            else:
-                value = None
-        label = stat_labels.get(stat, stat)
-        if value is not None:
-            out.append(f"- {label}: {value}")
-        else:
-            out.append(f"- {label}: não disponível")
-
-    return f"Estatísticas de {player_name} em {season}:\n" + "\n".join(out)
+    return {
+        "player": player_name,
+        "season": season,
+        "team": team_name,
+        "competition": competition,
+        "stats_requested": stats_requested,
+        "statistics": statistics
+    }
