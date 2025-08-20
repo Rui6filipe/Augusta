@@ -10,11 +10,13 @@ def extract_intent(user_input: str) -> dict:
     schema_description = """
     You must return a JSON object with these fields:
     - intent: one of ["get_player_stats", "get_team_standing", "get_match_result", "get_match_events"]
-    - player: string (name of player, or null if not relevant)
-    - team: string (name of team, or null if not relevant)
+    - player: string (official name of player as listed in major football databases, or null if not relevant)
+    - team: string (official name of team as listed in major football databases, or null if not relevant)
     - season: string (e.g. "2022/2023", "2024"), or null if not given
     - stat: string (e.g. "golos", "assistências", "cartões"), or null if not relevant
     - match_date: string (YYYY-MM-DD) or null
+
+    Note: The current football season is 2025/2026. If the user refers to relative seasons (e.g., "época passada", "last season", "época atual", "this season"), resolve them to the correct season string (e.g., "época passada" = "2024/2025", "época atual" = "2025/2026").
     """
 
     response = client.chat.completions.create(
@@ -45,10 +47,47 @@ def extract_intent(user_input: str) -> dict:
     return {**defaults, **intent}
 
 
-
-
 def handle_intent(intent: dict):
     """Map parsed intent to Football API"""
+    
+    if intent.get("intent") == "get_team_standing":
+        team_name = intent.get("team")
+        season = intent.get("season")
+
+        if not team_name or not season:
+            return "Não consegui identificar a equipa ou a época."
+
+        # Search team
+        team_res = football_api.search_team(team_name)
+        if not team_res.get("response"):
+            return f"Não encontrei a equipa {team_name}."
+
+        team = team_res["response"][0]["team"]
+        team_id = team["id"]
+        country = team.get("country", "").lower()
+
+        # Pick league
+        league_id = football_api.LEAGUES.get(country, {}).get("id")
+        if not league_id:
+            return f"Ainda não tenho mapeamento de ligas para {country}."
+
+        # Get standings
+        standings_res = football_api.get_team_standings(league_id, season.split("/")[0])
+        if not standings_res.get("response"):
+            return f"Não encontrei classificações para {team_name} em {season}."
+
+        standings = standings_res["response"][0]["league"]["standings"][0]
+
+        position = None
+        for row in standings:
+            if row["team"]["id"] == team_id:
+                position = row["rank"]
+                break
+
+        if position is None:
+            return f"Não encontrei a posição do {team_name} em {season}."
+        
+        return f"O {team_name} terminou em {position}º lugar na época {season}."
 
     return "Ainda não sei responder a esse tipo de pergunta."
 
