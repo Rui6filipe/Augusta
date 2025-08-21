@@ -1,9 +1,10 @@
 import football_api
 import unicodedata
 
-
 def get_league_info_from_competition(competition):
-    """Given a competition name, returns (league_id, league_name) if found, else (None, None)."""
+    """
+    Given a competition name, returns (league_id, league_name) if found, else (None, None).
+    """
     if not competition:
         return None, None
     for _, league in football_api.LEAGUES.items():
@@ -12,6 +13,11 @@ def get_league_info_from_competition(competition):
     return None, None
 
 def handle_team_standing_intent(intent: dict):
+    """
+    Handles the intent to retrieve a team's standing in a league or competition for a given season.
+    If the user does not provide a season, the function assumes the current season (2025/2026).
+    Returns a dictionary with team, season, competition, league, position, and country, or a user-friendly error message.
+    """
     team_name = intent.get("team1")
     season = intent.get("season")
     competition = intent.get("competition")
@@ -24,6 +30,8 @@ def handle_team_standing_intent(intent: dict):
 
     # Search team
     team_res = football_api.search_team(team_name)
+    if "error" in team_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
     if not team_res.get("response"):
         return f"Não encontrei a equipa {team_name}."
 
@@ -42,6 +50,8 @@ def handle_team_standing_intent(intent: dict):
 
     # Get standings
     standings_res = football_api.get_team_standings(league_id, season.split("/")[0])
+    if "error" in standings_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
     if not standings_res.get("response"):
         return f"Não encontrei classificações para {team_name} em {season}."
 
@@ -64,6 +74,12 @@ def handle_team_standing_intent(intent: dict):
 
 
 def handle_match_result_intent(intent: dict):
+    """
+    Handles the intent to retrieve the result of a match between two teams for a given season and competition.
+    - If the user does not provide a season, the function assumes the current season (2025/2026).
+    - If the user provides a competition, the function tries to map it to a league ID; if not found or not provided, the search is performed across all competitions.
+    Returns a dictionary with match details or a user-friendly error message.
+    """
     team1 = intent.get("team1")
     team2 = intent.get("team2")
     season = intent.get("season")
@@ -77,7 +93,11 @@ def handle_match_result_intent(intent: dict):
 
     # Search teams to get IDs
     t1 = football_api.search_team(team1)
+    if "error" in t1:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
     t2 = football_api.search_team(team2)
+    if "error" in t2:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
     if not t1.get("response") or not t2.get("response"):
         return "Não encontrei uma das equipas."
 
@@ -90,6 +110,8 @@ def handle_match_result_intent(intent: dict):
 
     # If no competition specified or not found, league_id remains None and will be omitted from API call
     match_res = football_api.get_match_result(id1, id2, season.split("/")[0], league_id)
+    if "error" in match_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
     if not match_res.get("response"):
         if competition:
             return f"Não encontrei resultados entre {team1} e {team2} em {season} para {competition}."
@@ -117,6 +139,14 @@ def handle_match_result_intent(intent: dict):
 
 
 def handle_team_fixtures_intent(intent: dict):
+    """
+    Handles the intent to retrieve a team's fixtures (matches) for a given season and period.
+    - If the user does not provide a season, the function assumes the current season (2025/2026).
+    - If fixture_period is not specified, all fixtures for the season are returned.
+    - If fixture_type is not specified, all fixtures are returned sorted by date.
+    - If fixture_type is "hardest" or "easiest", only fixtures with win probability are returned, sorted by lowest or highest win probability, respectively.
+    Returns a dictionary with team, season, fixture type, fixture period, and a list of fixtures (with date, teams, league, and win probability), or a user-friendly error message.
+    """
     team_name = intent.get("team1")
     season = intent.get("season")
     fixture_period = intent.get("fixture_period")
@@ -127,37 +157,49 @@ def handle_team_fixtures_intent(intent: dict):
 
     # Search team
     team_res = football_api.search_team(team_name)
+    if "error" in team_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
     if not team_res.get("response"):
         return f"Não encontrei a equipa {team_name}."
 
     team = team_res["response"][0]["team"]
     team_id = team["id"]
 
+    # Handle fixture_period: if not specified, fetch all fixtures for the season
     from_date, to_date = None, None
     if fixture_period and fixture_period.get("start") and fixture_period.get("end"):
         from_date = fixture_period["start"][:10]
         to_date = fixture_period["end"][:10]
 
-    # Get fixtures in period
     fixtures_res = football_api.get_team_fixtures(team_id, season.split("/")[0], from_date=from_date, to_date=to_date)
+    if "error" in fixtures_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
     fixtures = fixtures_res.get("response", [])
     if not fixtures:
         return f"Não encontrei jogos para o {team_name} em {season}."
 
-    # Annotate fixtures with win probability and filter out None values
-    fixtures_with_prob = []
+    # Annotate fixtures with win probability (if available)
     for f in fixtures:
         prob = compute_difficulty(f, team_name)
         if prob is not None:
             f["win_probability"] = prob
-            fixtures_with_prob.append(f)
+        else:
+            f["win_probability"] = None
 
-    if not fixtures_with_prob:
+    # Handle fixture_type: if not specified, return all fixtures sorted by date
+    fixtures_to_return = fixtures
+    if fixture_type == "hardest":
+        fixtures_to_return = [f for f in fixtures if f["win_probability"] is not None]
+        fixtures_to_return.sort(key=lambda x: x["win_probability"])
+    elif fixture_type == "easiest":
+        fixtures_to_return = [f for f in fixtures if f["win_probability"] is not None]
+        fixtures_to_return.sort(key=lambda x: x["win_probability"], reverse=True)
+    else:
+        # No fixture_type: sort all fixtures by date
+        fixtures_to_return.sort(key=lambda x: x["fixture"]["date"])
+
+    if fixture_type in ("hardest", "easiest") and not fixtures_to_return:
         return f"Não há jogos com probabilidade prevista para o {team_name} em {season}."
-
-    # Sort by difficulty (lower win probability = harder)
-    reverse_sort = fixture_type == "easiest"
-    fixtures_with_prob.sort(key=lambda x: x["win_probability"], reverse=reverse_sort)
 
     return {
         "team": team_name,
@@ -172,14 +214,22 @@ def handle_team_fixtures_intent(intent: dict):
                 "league": f["league"]["name"],
                 "win_probability": f.get("win_probability")
             }
-            for f in fixtures_with_prob
+            for f in fixtures_to_return
         ]
     }
 
 
 def compute_difficulty(fixture, team_name):
+    """
+    Computes the win probability for the given team in a specific fixture using prediction data from the API.
+    - If prediction data is unavailable or an error occurs, returns None.
+    - team_name is matched against the home and away teams to select the correct probability.
+    Returns a float between 0 and 1 representing the win probability, or None if not available.
+    """
     fixture_id = fixture["fixture"]["id"]
     pred_res = football_api.get_fixture_predictions(fixture_id)
+    if "error" in pred_res:
+        return None
     preds = pred_res.get("response", [])
     if not preds:
         return None  # No predictions, return None
@@ -208,19 +258,18 @@ def compute_difficulty(fixture, team_name):
 
 
 def handle_match_events_intent(intent: dict):
+    """
+    Handles the intent to retrieve specific events (e.g., goals, cards, substitutions) from a match between two teams for a given season and competition.
+    - If the user does not provide a season, the function assumes the current season (2025/2026).
+    - If the user does not specify event types, no events are returned.
+    - If the user provides a competition, the function tries to map it to a league ID; if not found or not provided, the search is performed across all competitions.
+    - Returns a dictionary with teams, season, competition, event types, and filtered events, or a user-friendly error message.
+    """
     team1 = intent.get("team1")
     team2 = intent.get("team2")
     season = intent.get("season")
     competition = intent.get("competition")
     event = intent.get("event")
-
-    event_labels = {
-        "goal": "Golos",
-        "card": "Cartões",
-        "subst": "Substituições",
-        "var": "VAR",
-        "incident": "Incidentes"
-    }
 
     if not team1 or not team2:
         return "Não consegui identificar as equipas do jogo."
@@ -230,7 +279,11 @@ def handle_match_events_intent(intent: dict):
 
     # Search teams to get IDs
     t1_res = football_api.search_team(team1)
+    if "error" in t1_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
     t2_res = football_api.search_team(team2)
+    if "error" in t2_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
     if not t1_res.get("response") or not t2_res.get("response"):
         return "Não encontrei uma das equipas."
 
@@ -242,32 +295,52 @@ def handle_match_events_intent(intent: dict):
 
     # Get fixture id for the match
     fixtures_res = football_api.get_match_result(id1, id2, season.split("/")[0], league_id)
+    if "error" in fixtures_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
     if not fixtures_res.get("response"):
         return f"Não encontrei o jogo entre {team1} e {team2} em {season}."
-    
     fixture_id = fixtures_res["response"][0]["fixture"]["id"]
 
     # Get events for that fixture
     events_res = football_api.get_fixture_events(fixture_id)
+    if "error" in events_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
     events = events_res.get("response", [])
 
     # Support event as list or string (compact)
-    event_types = event if isinstance(event, list) else [event] if isinstance(event, str) else []
-
+    if event is None:
+        # No event specified: return all events grouped by type
+        event_types = sorted(set(e.get("type", "") for e in events if e.get("type")))
+    else:
+        event_types = event if isinstance(event, list) else [event] if isinstance(event, str) else []
 
     filtered_events = {}
-    for ev in event_types:
-        event_lower = ev.lower()
-        filtered = [
+    if not event_types:
+        # No event types: return all events as a flat list
+        filtered_events["all"] = [
             {
                 "minute": e.get("time", {}).get("elapsed"),
                 "team": e.get("team", {}).get("name"),
                 "player": e.get("player", {}).get("name"),
-                "detail": e.get("detail")
+                "detail": e.get("detail"),
+                "type": e.get("type")
             }
-            for e in events if e.get("type", "").lower() == event_lower
+            for e in events
         ]
-        filtered_events[ev] = filtered
+    else:
+        for ev in event_types:
+            event_lower = ev.lower()
+            filtered = [
+                {
+                    "minute": e.get("time", {}).get("elapsed"),
+                    "team": e.get("team", {}).get("name"),
+                    "player": e.get("player", {}).get("name"),
+                    "detail": e.get("detail")
+                }
+                for e in events if e.get("type", "").lower() == event_lower
+            ]
+            filtered_events[ev] = filtered
+
     return {
         "team1": team1,
         "team2": team2,
@@ -277,7 +350,18 @@ def handle_match_events_intent(intent: dict):
         "events": filtered_events
     }
 
+
 def handle_player_stats_intent(intent: dict):
+    """
+    Handles the intent to retrieve statistics for a specific player for a given season, competition, and/or team.
+    - If the user does not provide a season, the function assumes the current season (2025/2026).
+    - If the user provides a competition, the function tries to map it to a league ID; if not found or not provided, the search is performed by team (if provided) or by player name.
+    - If the user provides a team name, the function searches for the player within that team for the given season.
+    - If neither competition nor team is provided, the function searches by player name across all teams.
+    - If multiple players match the query, the function asks for clarification.
+    - If a team or competition is specified, the statistics returned are only for that team or competition; otherwise, the statistics are the sum across all teams/competitions for the player in that season.
+    Returns a dictionary with player, season, team, competition, requested stats, and statistics, or a user-friendly error message.
+    """
 
     player_name = intent.get("player")
     season = intent.get("season")
@@ -302,19 +386,27 @@ def handle_player_stats_intent(intent: dict):
         if not league_id:
             return f"Não reconheço a competição {competition}."
         search_res = football_api.get_player_stats(player_name=player_name, season=season_start, league=league_id)
+        if "error" in search_res:
+            return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
 
     elif team_name:
         # Use team if no competition
         team_info = football_api.search_team(team_name)
+        if "error" in team_info:
+            return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
         if not team_info.get("response"):
             return f"Não encontrei a equipa {team_name}."
         team_id = team_info["response"][0]["team"]["id"]
         search_res = football_api.get_player_stats(player_name=player_name, season=season_start, team=team_id)
+        if "error" in search_res:
+            return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
 
     else:
         # Fallback → search by profiles using last name
         lastname = player_name.split()[-1]
         profiles_res = football_api.get_player_profiles(lastname)
+        if "error" in profiles_res:
+            return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
         candidates = profiles_res.get("response", [])
 
         if not candidates:
@@ -348,6 +440,8 @@ def handle_player_stats_intent(intent: dict):
 
         # Now get stats by player_id
         search_res = football_api.get_player_stats(player_id=player_id, season=season_start)
+        if "error" in search_res:
+            return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
 
     player_stats = search_res.get("response", []) if search_res else []
     if not player_stats:
