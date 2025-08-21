@@ -453,6 +453,31 @@ def handle_player_stats_intent(intent: dict):
     if not statistics:
         return f"Não encontrei estatísticas para {player_name} na época {season}."
 
+    # Filter statistics if requested
+    if stats_requested:
+        requested = [stats_requested] if isinstance(stats_requested, str) else stats_requested
+        filtered_stats = []
+        for stat in statistics:
+            filtered = {}
+            # Always include team and league info
+            if "team" in stat:
+                filtered["team"] = stat["team"]
+            if "league" in stat:
+                filtered["league"] = stat["league"]
+            # Now include only requested stats (support dot notation)
+            for req in requested:
+                parts = req.split(".")
+                value = stat
+                for p in parts:
+                    if isinstance(value, dict) and p in value:
+                        value = value[p]
+                    else:
+                        value = None
+                        break
+                filtered[req] = value
+            filtered_stats.append(filtered)
+        statistics = filtered_stats
+
     return {
         "player": player_name,
         "season": season,
