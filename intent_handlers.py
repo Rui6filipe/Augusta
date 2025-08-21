@@ -157,6 +157,7 @@ def handle_team_fixtures_intent(intent: dict):
 
     # Search team
     team_res = football_api.search_team(team_name)
+
     if "error" in team_res:
         return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
     if not team_res.get("response"):
@@ -172,6 +173,7 @@ def handle_team_fixtures_intent(intent: dict):
         to_date = fixture_period["end"][:10]
 
     fixtures_res = football_api.get_team_fixtures(team_id, season.split("/")[0], from_date=from_date, to_date=to_date)
+
     if "error" in fixtures_res:
         return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
     fixtures = fixtures_res.get("response", [])
@@ -375,7 +377,7 @@ def handle_player_stats_intent(intent: dict):
     # Default to current season if none given
     if not season:
         season = "2025/2026"
-    season_start = int(season.split("/")[0])
+    season_start = season.split("/")[0]
 
     search_res = None
     player_id = None
@@ -485,4 +487,170 @@ def handle_player_stats_intent(intent: dict):
         "competition": competition,
         "stats_requested": stats_requested,
         "statistics": statistics
+    }
+
+
+def handle_coach_intent(intent: dict):
+    """
+    Handles the intent to retrieve coach info for a team ("Quem é o treinador do PSG?")
+    or to find which team a coach manages ("Quem é que o Raul Henrique treina?").
+    """
+    team1 = intent.get("team1")
+    coach_name = intent.get("coach")
+
+    if team1:
+        # Who is the coach of this team?
+        team_res = football_api.search_team(team1)
+
+        if "error" in team_res:
+            return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
+        if not team_res.get("response"):
+            return f"Não encontrei a equipa {team1}."
+        
+        team_id = team_res["response"][0]["team"]["id"]
+        
+        coach_res = football_api.get_coach(team_id=team_id)
+        if "error" in coach_res:
+            return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
+        
+        if not coach_res.get("response"):
+            return f"Não encontrei informações sobre o treinador do {team1}."
+        
+        return coach_res["response"]
+    
+    elif coach_name:
+        # Which team does this coach manage?
+        coach_res = football_api.get_coach(search=coach_name)
+        
+        if "error" in coach_res:
+            return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
+        
+        if not coach_res.get("response"):
+            return f"Não encontrei informações sobre o treinador {coach_name}."
+        
+        # Return all teams managed by this coach (could be more than one)
+        return coach_res["response"]
+    else:
+        return "Não consegui identificar a equipa ou o treinador."
+    
+
+def handle_venue_intent(intent: dict):
+    """
+    Handles the intent to retrieve venue (stadium) info for a team.
+    Example: "Qual é a lotação do estádio do Benfica?"
+    """
+    venue_name = intent.get("venue")
+    if venue_name:
+        normalized_venue = ''.join(c for c in unicodedata.normalize('NFD', venue_name) if c.isalnum() or c.isspace()).strip()
+        venue_res = football_api.get_venue(search=normalized_venue)
+        if "error" in venue_res:
+            return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
+        if not venue_res.get("response"):
+            return f"Não encontrei informações sobre o estádio {venue_name}."
+        return venue_res["response"][0]
+    
+    # Fallback: try to get venue from team name
+    team1 = intent.get("team1")
+    if not team1:
+        return "Não consegui identificar a equipa nem o estádio."
+    
+    team_res = football_api.search_team(team1)
+    
+    if "error" in team_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
+    if not team_res.get("response"):
+        return f"Não encontrei a equipa {team1}."
+    
+    venue_id = team_res["response"][0]["venue"]["id"]
+    venue_res = football_api.get_venue(venue_id=venue_id)
+    
+    if "error" in venue_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
+    if not venue_res.get("response"):
+        return f"Não encontrei informações sobre o estádio do {team1}."
+    
+    return venue_res["response"]
+
+
+
+def handle_odds_intent(intent: dict):
+    """
+    Handles the intent to retrieve betting odds for a specific fixture and market.
+    Example: "Qual é a odd do Benfica ganhar ao Sporting no próximo jogo?"
+    """
+    team1 = intent.get("team1")
+    team2 = intent.get("team2")
+    competition = intent.get("competition")
+    season = intent.get("season")
+
+    # Search teams to get IDs
+    if not team1 or not team2:
+        return "Não consegui identificar as equipas do jogo."
+    if not season:
+        season = "2025/2026"
+    season_start = season.split("/")[0]
+
+    t1_res = football_api.search_team(team1)
+    if "error" in t1_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
+    t2_res = football_api.search_team(team2)
+    if "error" in t2_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
+    if not t1_res.get("response") or not t2_res.get("response"):
+        return "Não encontrei uma das equipas."
+
+    id1 = t1_res["response"][0]["team"]["id"]
+    id2 = t2_res["response"][0]["team"]["id"]
+
+    # Map competition name to league id if specified
+    league_id, _ = get_league_info_from_competition(competition)
+    match_res = football_api.get_match_result(id1, id2, season_start, league_id)
+    if "error" in match_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
+    if not match_res.get("response"):
+        return "Não encontrei o jogo para calcular odds."
+
+    fixture_id = match_res["response"][0]["fixture"]["id"]
+    odds_res = football_api.get_fixture_odds(fixture_id)
+   
+    if "error" in odds_res:
+        return "Ocorreu um erro de rede ao aceder aos dados de futebol. Tente novamente mais tarde."
+    if not odds_res.get("response"):
+        return "Não encontrei odds para o jogo."
+
+    # Only include selected markets and limit to 3 bookmakers
+    SELECTED_MARKETS = {
+        "Match Winner",
+        "Double Chance",
+        "Goals Over/Under",
+        "Both Teams Score",
+        "Asian Handicap"
+    }
+
+    filtered_odds = []
+    bookmaker_count = 0
+    for bookmaker in odds_res["response"]:
+        for bet in bookmaker.get("bookmakers", []):
+            if bookmaker_count >= 3:
+                break
+            for bet_type in bet.get("bets", []):
+                if bet_type.get("name") in SELECTED_MARKETS:
+                    filtered_odds.append({
+                        "bookmaker": bet.get("name"),
+                        "market": bet_type.get("name"),
+                        "values": bet_type.get("values", [])
+                    })
+            if filtered_odds:
+                bookmaker_count += 1
+    all_odds = filtered_odds
+
+    if not all_odds:
+        return "Não encontrei odds relevantes para o jogo ou mercado pedido."
+
+    return {
+        "team1": team1,
+        "team2": team2,
+        "competition": competition,
+        "season": season,
+        "odds": all_odds
     }
