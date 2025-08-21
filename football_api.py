@@ -25,7 +25,7 @@ LEAGUES = {
 HEADERS = {"x-apisports-key": FOOTBALL_API_KEY}
 
 # Note on caching:
-# Some endpoints (get_team_standings, get_match_result, get_fixture_events, get_player_stats) are NOT cached.
+# Some endpoints (get_team_standings, get_match_result, get_fixture_events, get_player_stats, get_fixture_odds) are NOT cached.
 # This is because users may expect real-time or near real-time data for these endpoints (e.g., live scores, stats, or events).
 #
 # A possible solution: only cache data for past seasons (not the current season),
@@ -39,16 +39,23 @@ HEADERS = {"x-apisports-key": FOOTBALL_API_KEY}
 _cache = dc.Cache("cache")
 
 def cache_get(key: str):
-    """Get cached value if not expired (diskcache handles expiration)."""
+    """
+    Get cached value if not expired (diskcache handles expiration).
+    """
     value = _cache.get(key)
     return value
 
 def cache_set(key: str, value, ttl: int):
-    """Store value in cache with expiration."""
+    """
+    Store value in cache with expiration.
+    """
     _cache.set(key, value, expire=ttl)
 
-# Key normalization for cache safety
+
 def normalize_key(s: str) -> str:
+    """
+    Key normalization for cache safety.
+    """
     return str(s).strip().lower().replace(" ", "_")
 
 
@@ -71,11 +78,9 @@ def search_team(name: str):
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
-
     url = f"{FOOTBALL_API_URL}/teams"
     params = {"search": name}
     data = fetch_from_api(url, HEADERS, params)
-    # Only cache if response is not empty and has no error
     if data and not data.get("error") and data.get("response"):
         cache_set(cache_key, data, 30 * 24 * 3600)  # 30 days
     return data
@@ -188,7 +193,6 @@ def get_coach(coach_id: int = None, team_id: int = None, search: str = None):
     """
     Fetch coach information by coach ID, team ID, or name search.
     """
-    # Cache: 7 days
     cache_key = f"coach:{coach_id}:{team_id}:{normalize_key(search) if search else ''}"
     cached = cache_get(cache_key)
     if cached is not None:
